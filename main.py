@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from aiohttp import web
 from app import routes
 from app import context
@@ -25,4 +24,4 @@ if __name__ == '__main__':
 
     loop = asyncio.new_event_loop()
     app = loop.run_until_complete(create_app(secrets={}))
-    web.run_app(app, host='127.0.0.1', port=7777)
+    web.run_app(app, host='192.168.43.172', port=7777)

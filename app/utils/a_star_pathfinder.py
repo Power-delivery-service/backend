@@ -1,45 +1,35 @@
 from __future__ import annotations
 
-import logging
+import copy
 import heapq
 import math
 import typing as tp
 import numpy as np
 from app import models
+from . import path_smoother
+from . import direction_finder
 
 
-class Node:
-    """A node class for A* Pathfinding"""
+class PriorityQueue:
+    def __init__(self):
+        self.elements = []
 
-    def __init__(self, parent: Node = None, position: models.WayPoint = None):
-        self.parent: Node = parent
-        self.position: models.WayPoint = position
+    def empty(self) -> bool:
+        return not self.elements
 
-        self.g = 0
-        self.h = 0
-        self.f = 0
+    def put(self, item, priority: float):
+        heapq.heappush(self.elements, (priority, item))
 
-    def __eq__(self, other):
-        return self.position == other.position
-
-    def __repr__(self):
-        return f"{self.position} - g: {self.g} h: {self.h} f: {self.f}"
-
-    # defining less than for purposes of heap queue
-    def __lt__(self, other):
-        return self.f < other.f
-
-    # defining greater than for purposes of heap queue
-    def __gt__(self, other):
-        return self.f > other.f
+    def get(self):
+        return heapq.heappop(self.elements)[1]
 
 
 class AStar:
     def __init__(self) -> None:
-        self.__maze: tp.Optional[np.array] = None
-        self.__start: tp.Optional[models.WayPoint] = None
-        self.__target: tp.Optional[models.WayPoint] = None
-        self.__result_path = tp.Optional[tp.List[tp.Tuple[int, int]]]
+        self.__maze: tp.Optional[models.GridWithWeights] = None
+        self.__start: tp.Optional[models.GridLocation] = None
+        self.__target: tp.Optional[models.GridLocation] = None
+        self.__result_path: tp.Optional[tp.List[models.GridLocation]] = None
 
     @property
     def maze(self) -> np.array:
@@ -47,123 +37,140 @@ class AStar:
 
     @maze.setter
     def maze(self, maze: np.array) -> None:
-        self.__maze = maze
+        width = maze.shape[0]
+        heigth = maze.shape[1]
+        self.__maze = models.GridWithWeights(width, heigth, maze)
 
     @property
-    def points(self) -> models.DataPoints:
-        return models.DataPoints(start=self.__start, target=self.__target)
+    def points(self) -> (models.GridLocation, models.GridLocation):
+        return self.__start, self.__target
 
     @points.setter
-    def points(self, points: models.DataPoints) -> None:
+    def points(self, points: (models.GridLocation, models.GridLocation)) -> None:
+        (start, target) = points
         self.__maze_set_check()
         self.__points_reachable_check(points)
 
-        self.__start = points.start
-        self.__target = points.target
+        self.__start = start
+        self.__target = target
 
     def __maze_set_check(self) -> None:
         if self.__maze is None:
             raise Exception('Map needs to be set first')
 
-    def __points_reachable_check(self, points: models.DataPoints) -> None:
-        if (points.start.point_x > self.__maze.shape[0]) or\
-                (points.start.point_y > self.__maze.shape[1]):
+    def __points_reachable_check(self, points: (models.GridLocation, models.GridLocation)) -> None:
+        (start, target) = points
+        if (start[0] > self.__maze.width) or (start[1] > self.__maze.height):
             raise Exception('Start is out of range')
-        elif (points.target.point_x > self.__maze.shape[0]) or\
-                (points.target.point_y > self.__maze.shape[1]):
+        elif (target[0] > self.__maze.width) or (target[1] > self.__maze.height):
             raise Exception('End is out of range')
 
-        if self.__maze[points.start.point_x][points.start.point_y] == 1:
+        if start in self.__maze.walls:
             raise Exception('Start is unreachable')
-        elif self.__maze[points.target.point_x][points.target.point_y] == 1:
+        elif target in self.__maze.walls:
             raise Exception('End is unreachable')
 
     def __points_set_check(self) -> None:
         if self.__start is None or self.__target is None:
             raise Exception('Points need to be set')
 
-    def get_path(self) -> tp.Optional[tp.List[tp.Tuple[int, int]]]:
-        return self.__result_path
-
-    def __return_path(self, current_node) -> None:
+    def __return_path(self, current_node, came_from):
         path = []
-        current = current_node
+        current = came_from[current_node]
         while current is not None:
-            path.append(current.position)
-            current = current.parent
+            path.append(current)
+            current = came_from[current]
+
         self.__result_path = path[::-1]
 
-    async def solve(self) -> None:
-        self.__maze_set_check()
-        self.__points_set_check()
-        start_node = Node(None, self.__start)
-        start_node.g = start_node.h = start_node.f = 0
-        target_node = Node(None, self.__target)
-        target_node.g = target_node.h = target_node.f = 0
+    def get_path(self) -> tp.Optional[tp.List[models.GridLocation]]:
+        return self.__result_path
 
-        open_list = []
-        closed_list = []
+    async def smooth_path(self, path: tp.List[models.GridLocation]) \
+            -> tp.List[models.GridLocation]:
+        smoothed_path = [path[0]]
 
-        heapq.heapify(open_list)
-        heapq.heappush(open_list, start_node)
+        l, r = 0, len(path) - 1
+        while l < len(path) - 1:
+            if await path_smoother.is_line_possible(path[l], path[r], self.__maze) is not None:
+                smoothed_path.append(path[r])
+                l = copy.copy(r)
+                r = len(path) - 1
+            else:
+                r -= 1
 
-        outer_iterations = 0
-        # max_iterations = (len(self.__maze[0]) * len(self.__maze))
-        max_iterations = 1e6
+        return smoothed_path
 
-        adjacent_squares = ((0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (-1, 1), (1, -1), (1, 1),)
+    async def get_angles(self, points: tp.List[models.GridLocation]):
+        start_vector_start = (0, points[0][1])
 
-        while len(open_list) > 0:
-            outer_iterations += 1
+        path = [start_vector_start]
+        path.extend(points)
+        angles_path: tp.List[float] = []
 
-            current_node = heapq.heappop(open_list)
-            closed_list.append(current_node)
+        for i in range(1, len(path) - 1):
+            start = direction_finder.to_cartesian_coordinates((path[i - 1]),
+                                                              (self.__maze.width, self.__maze.height))
+            waypoint = direction_finder.to_cartesian_coordinates(path[i],
+                                                                 (self.__maze.width, self.__maze.height))
+            end = direction_finder.to_cartesian_coordinates(path[i + 1],
+                                                            (self.__maze.width, self.__maze.height))
 
-            if outer_iterations > max_iterations:
-                logging.info("giving up on pathfinding too many iterations")
-                return self.__return_path(current_node)
+            angle = await direction_finder.get_rotation_angle(start, waypoint, end)
+            angles_path.append(angle)
 
-            if current_node == target_node:
-                logging.info(f'{outer_iterations} iterations were spent')
-                return self.__return_path(current_node)
+        return angles_path
 
-            children = []
-            for new_position in adjacent_squares:
-                node_position = models.WayPoint.from_request(
-                    (current_node.position.point_x + new_position[0],
-                     current_node.position.point_y + new_position[1]))
+    async def visualise(self, path: tp.List[models.GridLocation], maze: np.array) -> None:
+        ind = 0
+        path_maze = []
+        print('\n')
+        print(' ', [str(_) for _ in range(self.__maze.height)])
+        for i in range(self.__maze.width):
+            a = []
+            for j in range(self.__maze.height):
+                if (i, j) in path:
+                    # a.append(f'{ind}')
+                    a.append('0')
+                    ind += 1
+                elif maze[i][j] == 0:
+                    a.append('.')
+                elif maze[i][j] == 1:
+                    a.append('#')
+            path_maze.append(a)
 
-                # Make sure within distance
-                if (node_position.point_x > (len(self.__maze) - 1)) or \
-                        (node_position.point_x < 0) or \
-                        (node_position.point_y > (self.__maze.shape[1] - 1)) or \
-                        (node_position.point_y < 0):
-                    continue
+        for i in range(len(path_maze)):
+            print(i, path_maze[i])
 
-                # Make sure walkable terrain
-                if self.__maze[node_position.point_x][node_position.point_y] == 1:
-                    continue
+    @staticmethod
+    def __heuristic(a: models.GridLocation, b: models.GridLocation) -> float:
+        (x1, y1) = a
+        (x2, y2) = b
+        return math.sqrt(((x1 - x2) ** 2) + ((y1 - y2) ** 2))
 
-                children.append(Node(current_node, node_position))
+    def a_star_search(self):
+        graph = self.__maze
+        start = (self.__start[0], self.__start[1])
+        goal = (self.__target[0], self.__target[1])
 
-            for child in children:
-                # Child in the closed list
-                if len([closed_child for closed_child in closed_list if closed_child == child]) > 0:
-                    continue
+        frontier = PriorityQueue()
+        frontier.put(start, 0)
+        came_from = {}
+        cost_so_far = {}
+        came_from[start] = None
+        cost_so_far[start] = 0
 
-                # Child is already in open list
-                if len([open_node for open_node in open_list if
-                        child.position == open_node.position and child.g > open_node.g]) > 0:
-                    continue
+        while not frontier.empty():
+            current = frontier.get()
 
-                child.g = current_node.g + 1
-                child.h = math.sqrt(((child.position.point_x - target_node.position.point_x) ** 2) +
-                                    ((child.position.point_y - target_node.position.point_y) ** 2))
-                # child.h = abs(child.position[0] - target_node.position[0]) - \
-                #           abs(child.position[1] - target_node.position[1])
-                child.f = child.g + child.h
+            if current == goal:
+                self.__return_path(current, came_from)
+                break
 
-                heapq.heappush(open_list, child)
-
-        logging.info("Couldn't get a path to destination")
-        return None
+            for next in graph.neighbors(current):
+                new_cost = cost_so_far[current] + graph.cost(current, next)
+                if next not in cost_so_far or new_cost < cost_so_far[next]:
+                    cost_so_far[next] = new_cost
+                    priority = new_cost + self.__heuristic(next, goal)
+                    frontier.put(next, priority)
+                    came_from[next] = current
