@@ -6,7 +6,7 @@ from app import config
 
 class AppContext:
     def __init__(self, secrets):
-        self.db: tp.Optional[redis.Redis] = redis.Redis()
+        self.db: tp.Optional[redis.Redis] = redis.Redis(host=config.IP, port=config.DB_PORT, db=1)
         logging.info('Redis started successfully')
         self.secrets = secrets
 
