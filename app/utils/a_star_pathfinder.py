@@ -56,23 +56,25 @@ class AStar:
 
     def __maze_set_check(self) -> None:
         if self.__maze is None:
-            raise Exception('Map needs to be set first')
+            raise Exception("Map needs to be set first")
 
-    def __points_reachable_check(self, points: (models.GridLocation, models.GridLocation)) -> None:
+    def __points_reachable_check(
+        self, points: (models.GridLocation, models.GridLocation)
+    ) -> None:
         (start, target) = points
         if (start[0] > self.__maze.width) or (start[1] > self.__maze.height):
-            raise Exception('Start is out of range')
+            raise Exception("Start is out of range")
         elif (target[0] > self.__maze.width) or (target[1] > self.__maze.height):
-            raise Exception('End is out of range')
+            raise Exception("End is out of range")
 
         if start in self.__maze.walls:
-            raise Exception('Start is unreachable')
+            raise Exception("Start is unreachable")
         elif target in self.__maze.walls:
-            raise Exception('End is unreachable')
+            raise Exception("End is unreachable")
 
     def __points_set_check(self) -> None:
         if self.__start is None or self.__target is None:
-            raise Exception('Points need to be set')
+            raise Exception("Points need to be set")
 
     def __return_path(self, current_node, came_from):
         path = []
@@ -86,13 +88,17 @@ class AStar:
     def get_path(self) -> tp.Optional[tp.List[models.GridLocation]]:
         return self.__result_path
 
-    async def smooth_path(self, path: tp.List[models.GridLocation]) \
-            -> tp.List[models.GridLocation]:
+    async def smooth_path(
+        self, path: tp.List[models.GridLocation]
+    ) -> tp.List[models.GridLocation]:
         smoothed_path = [path[0]]
 
         l, r = 0, len(path) - 1
         while l < len(path) - 1:
-            if await path_smoother.is_line_possible(path[l], path[r], self.__maze) is not None:
+            if (
+                await path_smoother.is_line_possible(path[l], path[r], self.__maze)
+                is not None
+            ):
                 smoothed_path.append(path[r])
                 l = copy.copy(r)
                 r = len(path) - 1
@@ -109,34 +115,39 @@ class AStar:
         angles_path: tp.List[float] = []
 
         for i in range(1, len(path) - 1):
-            start = direction_finder.to_cartesian_coordinates((path[i - 1]),
-                                                              (self.__maze.width, self.__maze.height))
-            waypoint = direction_finder.to_cartesian_coordinates(path[i],
-                                                                 (self.__maze.width, self.__maze.height))
-            end = direction_finder.to_cartesian_coordinates(path[i + 1],
-                                                            (self.__maze.width, self.__maze.height))
+            start = direction_finder.to_cartesian_coordinates(
+                (path[i - 1]), (self.__maze.width, self.__maze.height)
+            )
+            waypoint = direction_finder.to_cartesian_coordinates(
+                path[i], (self.__maze.width, self.__maze.height)
+            )
+            end = direction_finder.to_cartesian_coordinates(
+                path[i + 1], (self.__maze.width, self.__maze.height)
+            )
 
             angle = await direction_finder.get_rotation_angle(start, waypoint, end)
             angles_path.append(angle)
 
         return angles_path
 
-    async def visualise(self, path: tp.List[models.GridLocation], maze: np.array) -> None:
+    async def visualise(
+        self, path: tp.List[models.GridLocation], maze: np.array
+    ) -> None:
         ind = 0
         path_maze = []
-        print('\n')
-        print(' ', [str(_) for _ in range(self.__maze.height)])
+        print("\n")
+        print(" ", [str(_) for _ in range(self.__maze.height)])
         for i in range(self.__maze.width):
             a = []
             for j in range(self.__maze.height):
                 if (i, j) in path:
                     # a.append(f'{ind}')
-                    a.append('0')
+                    a.append("0")
                     ind += 1
                 elif maze[i][j] == 0:
-                    a.append('.')
+                    a.append(".")
                 elif maze[i][j] == 1:
-                    a.append('#')
+                    a.append("#")
             path_maze.append(a)
 
         for i in range(len(path_maze)):

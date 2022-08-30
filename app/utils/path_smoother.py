@@ -3,9 +3,11 @@ from app import models
 import typing as tp
 
 
-async def is_line_possible(start: models.GridLocation,
-                           target: models.GridLocation,
-                           maze: models.GridWithWeights) -> tp.Optional[tp.List[models.WayPoint]]:
+async def is_line_possible(
+    start: models.GridLocation,
+    target: models.GridLocation,
+    maze: models.GridWithWeights,
+) -> tp.Optional[tp.List[models.WayPoint]]:
     # Brezenham's algorythm
 
     (start_x, start_y) = start

@@ -17,10 +17,11 @@ async def create_app(secrets) -> web.Application:
     return app
 
 
-if __name__ == '__main__':
-    logging.basicConfig(format=u'%(filename)s [LINE:%(lineno)d] #%(levelname)-8s [%(asctime)s]  %(message)s',
-                        level=logging.INFO,
-                        )
+if __name__ == "__main__":
+    logging.basicConfig(
+        format="%(filename)s [LINE:%(lineno)d] #%(levelname)-8s [%(asctime)s]  %(message)s",
+        level=logging.INFO,
+    )
 
     loop = asyncio.new_event_loop()
     app = loop.run_until_complete(create_app(secrets={}))
